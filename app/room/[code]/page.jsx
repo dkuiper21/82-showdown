@@ -1,0 +1,437 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams } from "next/navigation";
+
+function getPlayerId() {
+  let id = localStorage.getItem("s82_pid");
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem("s82_pid", id);
+  }
+  return id;
+}
+
+const fmt = (x) => (Math.round(x * 10) / 10).toFixed(1);
+
+function StatLine({ p }) {
+  return (
+    <span className="st">
+      {fmt(p.pts)}p {fmt(p.reb)}r {fmt(p.ast)}a {fmt(p.stl)}s {fmt(p.blk)}b
+    </span>
+  );
+}
+
+function Roster({ roster, slots, title }) {
+  const bySlot = {};
+  for (const r of roster || []) bySlot[r.slot] = r;
+  return (
+    <div className="card">
+      <div className="label">{title}</div>
+      {slots.map((s, i) => (
+        <div className="rosterline" key={i}>
+          <div className="slot">{i < 5 ? s : `BN${i - 4}`}</div>
+          <div className="who">
+            {bySlot[i] ? (
+              <>
+                {bySlot[i].n}
+                <small>{bySlot[i].team}</small>
+              </>
+            ) : (
+              <span className="empty">open</span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function Room() {
+  const { code } = useParams();
+  const [state, setState] = useState(null);
+  const [error, setError] = useState("");
+  const [joinName, setJoinName] = useState("");
+  const [selected, setSelected] = useState(null); // player index in draw
+  const [showStats, setShowStats] = useState(false); // hidden by default
+  const [busy, setBusy] = useState(false);
+  const pidRef = useRef(null);
+
+  const refresh = useCallback(async () => {
+    if (!pidRef.current) return;
+    try {
+      const res = await fetch(
+        `/api/game?code=${code}&playerId=${pidRef.current}`,
+        { cache: "no-store" }
+      );
+      const data = await res.json();
+      if (res.ok) {
+        setState(data);
+        setError("");
+      } else if (res.status === 404) {
+        setError("Room not found (codes expire after 24h)");
+      }
+    } catch {
+      /* transient network error — keep polling */
+    }
+  }, [code]);
+
+  useEffect(() => {
+    pidRef.current = getPlayerId();
+    setJoinName(localStorage.getItem("s82_name") || "");
+    refresh();
+    const t = setInterval(refresh, 2000);
+    return () => clearInterval(t);
+  }, [refresh]);
+
+  // Clear selection whenever the round advances or the draw changes (re-roll),
+  // so a stale index can't point at the wrong player.
+  const drawKey = `${state?.round}|${state?.draw?.label}`;
+  useEffect(() => {
+    setSelected(null);
+  }, [drawKey]);
+
+  async function post(payload) {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/game", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, playerId: pidRef.current, ...payload }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Something went wrong");
+      if (data.phase) setState(data);
+      setError("");
+      return data;
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (error && !state) {
+    return (
+      <div className="wrap">
+        <div className="logo">82 <span>SHOWDOWN</span></div>
+        <div className="error">{error}</div>
+        <a className="btn ghost" style={{ textAlign: "center", textDecoration: "none" }} href="/">
+          Back home
+        </a>
+      </div>
+    );
+  }
+  if (!state) {
+    return (
+      <div className="wrap">
+        <div className="waiting">Loading…</div>
+      </div>
+    );
+  }
+
+  // Visitor opened a shared link but hasn't joined this room yet.
+  if (state.youIdx === -1) {
+    const full = state.players.length >= 2;
+    return (
+      <div className="wrap">
+        <div className="logo">82 <span>SHOWDOWN</span></div>
+        <div className="card">
+          {full ? (
+            <div className="error">This game is already full.</div>
+          ) : (
+            <>
+              <div className="tagline" style={{ marginBottom: 14 }}>
+                {state.players[0]} challenged you!
+              </div>
+              <label className="label">Your name</label>
+              <input
+                value={joinName}
+                maxLength={20}
+                onChange={(e) => setJoinName(e.target.value)}
+              />
+              <button
+                className="btn"
+                disabled={busy || !joinName.trim()}
+                onClick={() => {
+                  localStorage.setItem("s82_name", joinName.trim());
+                  post({ action: "join", name: joinName.trim() });
+                }}
+              >
+                Accept Challenge
+              </button>
+              {error && <div className="error">{error}</div>}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- LOBBY ----------
+  if (state.phase === "lobby") {
+    return (
+      <div className="wrap">
+        <div className="logo">82 <span>SHOWDOWN</span></div>
+        <div className="card">
+          <div className="label" style={{ textAlign: "center" }}>Game code</div>
+          <div className="bigcode">{state.code}</div>
+          <div className="pulse">Waiting for your opponent to join…</div>
+          <div style={{ marginTop: 16 }}>
+            <button
+              className="btn ghost"
+              onClick={() => {
+                const url = window.location.href;
+                if (navigator.share) {
+                  navigator.share({ title: "82 Showdown", text: `Beat my squad! Code: ${state.code}`, url });
+                } else {
+                  navigator.clipboard.writeText(url);
+                  alert("Link copied!");
+                }
+              }}
+            >
+              Share invite link
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- DRAFT ----------
+  if (state.phase === "draft") {
+    const youPicked = state.you.pickedThisRound;
+    const usedSlots = new Set(state.you.roster.map((r) => r.slot));
+    const myNames = new Set(state.you.roster.map((r) => r.n));
+    const sel = selected !== null ? state.draw.players[selected] : null;
+
+    return (
+      <div className="wrap">
+        <div className="topbar">
+          <div className="round">
+            Round {state.round + 1} <span style={{ color: "var(--muted)" }}>/ {state.rounds}</span>
+          </div>
+          <div className={`oppstatus ${state.opp?.pickedThisRound ? "ready" : ""}`}>
+            {state.opp?.name}: {state.opp?.pickedThisRound ? "picked ✓" : "deciding…"}
+          </div>
+        </div>
+
+        {!youPicked ? (
+          <div className="card">
+            <div className="teamname">{state.draw.label}</div>
+            <div className="teamsub">Pick one player for your rotation</div>
+
+            {(() => {
+              const benchOpen = [5, 6, 7].some((s) => !usedSlots.has(s));
+              const canPlace = (p) =>
+                !myNames.has(p.n) &&
+                (benchOpen ||
+                  state.slots
+                    .slice(0, 5)
+                    .some((s, i) => !usedSlots.has(i) && p.pos === s));
+              const noLegalPick = !state.draw.players.some(canPlace);
+              return (
+                <>
+                  {noLegalPick && (
+                    <div className="error">
+                      No legal pick on this team — take a free re-roll.
+                    </div>
+                  )}
+                  <div className="statsrow">
+                    <button
+                      className={`toggle ${showStats ? "on" : ""}`}
+                      onClick={() => setShowStats(!showStats)}
+                    >
+                      {showStats ? "Hide stats" : "Show stats"}
+                    </button>
+                    {(!state.you.rerollUsed || noLegalPick) && (
+                      <button
+                        className="toggle"
+                        disabled={busy}
+                        onClick={() => {
+                          setSelected(null);
+                          post({ action: "reroll" });
+                        }}
+                      >
+                        🎲 Re-roll team{" "}
+                        {noLegalPick && state.you.rerollUsed ? "(free)" : "(1 left)"}
+                      </button>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+
+            {state.draw.players.map((p, i) => {
+              const drafted = myNames.has(p.n);
+              return (
+                <button
+                  key={i}
+                  className={`player ${selected === i ? "sel" : ""}`}
+                  disabled={drafted}
+                  onClick={() => setSelected(selected === i ? null : i)}
+                >
+                  <span className="pos">{p.pos}</span>
+                  <span className="nm">{p.n}</span>
+                  {drafted ? (
+                    <span className="st">on your roster</span>
+                  ) : (
+                    showStats && <StatLine p={p} />
+                  )}
+                </button>
+              );
+            })}
+
+            {sel && (
+              <>
+                <div className="label" style={{ marginTop: 12 }}>
+                  Slot for {sel.n}
+                </div>
+                <div className="slotgrid">
+                  {state.slots.map((s, i) => {
+                    const isBench = i >= 5;
+                    const eligible =
+                      !usedSlots.has(i) && (isBench || sel.pos === s);
+                    return (
+                      <button
+                        key={i}
+                        className={`slotbtn ${isBench ? "bench" : ""}`}
+                        disabled={!eligible || busy}
+                        onClick={() =>
+                          post({ action: "pick", player: selected, slot: i }).then(
+                            () => setSelected(null)
+                          )
+                        }
+                      >
+                        {isBench ? `Bench ${i - 4}` : s}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+            {error && <div className="error">{error}</div>}
+          </div>
+        ) : (
+          <div className="card">
+            <div className="waiting">
+              Pick locked in. Waiting for {state.opp?.name}…
+            </div>
+          </div>
+        )}
+
+        <Roster roster={state.you.roster} slots={state.slots} title="Your rotation" />
+        <div className="card" style={{ fontSize: 13, color: "var(--muted)" }}>
+          {state.opp?.name} has drafted {state.opp?.picksCount}/8 — picks stay
+          hidden until tip-off.
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- SERIES / DONE ----------
+  const s = state.series;
+  const youIdx = state.youIdx;
+  const myWins = s.wins[youIdx];
+  const oppWins = s.wins[1 - youIdx];
+  const over = s.over;
+  const champIsYou = over && myWins > oppWins;
+
+  return (
+    <div className="wrap">
+      <div className="logo" style={{ fontSize: 20, margin: "10px 0" }}>
+        THE <span>SERIES</span>
+      </div>
+
+      <div className="serieshead card" style={{ marginBottom: 14 }}>
+        <div className="seriesteam">
+          <div className="nm">{state.you.name}</div>
+          <div className="serieswins">{myWins}</div>
+        </div>
+        <div className="vs">best of 7</div>
+        <div className="seriesteam">
+          <div className="nm">{state.opp?.name}</div>
+          <div className="serieswins">{oppWins}</div>
+        </div>
+      </div>
+
+      {over && (
+        <div className="champ">
+          <div className="trophy">🏆</div>
+          <div className="title">
+            {champIsYou ? "YOU ARE THE CHAMP!" : `${state.opp?.name} takes it`}
+          </div>
+          <div className="sub">
+            Series: {Math.max(myWins, oppWins)}–{Math.min(myWins, oppWins)}
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <button
+              className="btn small ghost"
+              onClick={() => {
+                const txt = `82 Showdown: I ${champIsYou ? "beat" : "lost to"} ${state.opp?.name} ${myWins}-${oppWins} in a best-of-7. Draft your squad and challenge me!`;
+                if (navigator.share) navigator.share({ text: txt });
+                else {
+                  navigator.clipboard.writeText(txt);
+                  alert("Copied!");
+                }
+              }}
+            >
+              Share result
+            </button>{" "}
+            <a className="btn small" style={{ textDecoration: "none" }} href="/">
+              Rematch →
+            </a>
+          </div>
+        </div>
+      )}
+
+      {!over &&
+        (youIdx === 0 ? (
+          <button
+            className="btn"
+            disabled={busy}
+            style={{ marginBottom: 14 }}
+            onClick={() => post({ action: "reveal" })}
+          >
+            🏀 Play Game {s.revealed + 1}
+          </button>
+        ) : (
+          <div className="waiting">
+            Waiting for {state.opp?.name} to play Game {s.revealed + 1}…
+          </div>
+        ))}
+
+      {[...s.games].reverse().map((g) => {
+        const youWon = g.winner === youIdx;
+        const yourScore = youIdx === 0 ? g.sa : g.sb;
+        const theirScore = youIdx === 0 ? g.sb : g.sa;
+        const yourTop = youIdx === 0 ? g.topA : g.topB;
+        const theirTop = youIdx === 0 ? g.topB : g.topA;
+        return (
+          <div className="game" key={g.n}>
+            <div className="gtitle">
+              Game {g.n} {g.ot ? "· OT" : ""} · {youWon ? "WIN" : "LOSS"}
+            </div>
+            <div className="score">
+              <span className={youWon ? "w" : ""}>
+                {state.you.name} {yourScore}
+              </span>
+              <span className={!youWon ? "w" : ""}>
+                {theirScore} {state.opp?.name}
+              </span>
+            </div>
+            <div className="flavor">{g.desc}</div>
+            <div className="tops">
+              Top scorers: {yourTop.n} {yourTop.pts} · {theirTop.n} {theirTop.pts}
+            </div>
+          </div>
+        );
+      })}
+
+      <div className="section-title">The rosters</div>
+      <Roster roster={state.you.roster} slots={state.slots} title={`${state.you.name} (you)`} />
+      <Roster roster={state.opp?.roster} slots={state.slots} title={state.opp?.name} />
+      {error && <div className="error">{error}</div>}
+    </div>
+  );
+}
