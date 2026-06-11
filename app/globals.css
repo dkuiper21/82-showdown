@@ -182,7 +182,9 @@ input.code { text-transform: uppercase; letter-spacing: 6px; font-weight: 700; t
 .player:disabled { opacity: 0.4; cursor: default; }
 .player .pos {
   flex-shrink: 0;
-  width: 34px;
+  min-width: 34px;
+  padding-left: 5px;
+  padding-right: 5px;
   text-align: center;
   background: var(--bg);
   border-radius: 6px;
@@ -237,6 +239,36 @@ input.code { text-transform: uppercase; letter-spacing: 6px; font-weight: 700; t
 .rosterline .who { flex: 1; }
 .rosterline .who small { color: var(--muted); display: block; font-size: 11px; }
 .rosterline .empty { color: var(--muted); font-style: italic; }
+
+/* Interactive roster (tap to move players) */
+button.rosterline {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  align-items: flex-start;
+}
+button.rosterline:last-child { border-bottom: none; }
+.rosterline.movesel {
+  background: var(--card2);
+  outline: 1px solid var(--accent);
+  border-radius: 8px;
+}
+.rosterline.target {
+  background: rgba(61, 220, 132, 0.08);
+  outline: 1px dashed var(--green);
+  border-radius: 8px;
+}
+.movehint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
 
 /* Series */
 .serieshead {

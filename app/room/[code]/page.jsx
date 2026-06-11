@@ -14,6 +14,9 @@ function getPlayerId() {
 
 const fmt = (x) => (Math.round(x * 10) / 10).toFixed(1);
 
+// Multi-position support: pos like "SG/SF" qualifies for either starter slot.
+const canPlay = (pos, slotName) => pos.split("/").includes(slotName);
+
 function StatLine({ p }) {
   return (
     <span className="st">
@@ -22,27 +25,63 @@ function StatLine({ p }) {
   );
 }
 
-function Roster({ roster, slots, title }) {
+// When onTap is provided the roster is interactive: tap a player, then tap a
+// destination slot to move him (open slot, or legal swap with another player).
+function Roster({ roster, slots, title, onTap, moveFrom = null }) {
   const bySlot = {};
   for (const r of roster || []) bySlot[r.slot] = r;
+  const fits = (pl, s) => s >= 5 || canPlay(pl.pos, slots[s]);
+  const eligibleTarget = (i) => {
+    if (moveFrom === null || moveFrom === i) return false;
+    const mover = bySlot[moveFrom];
+    if (!mover || !fits(mover, i)) return false;
+    const occ = bySlot[i];
+    return !occ || fits(occ, moveFrom);
+  };
   return (
     <div className="card">
       <div className="label">{title}</div>
-      {slots.map((s, i) => (
-        <div className="rosterline" key={i}>
-          <div className="slot">{i < 5 ? s : `BN${i - 4}`}</div>
-          <div className="who">
-            {bySlot[i] ? (
-              <>
-                {bySlot[i].n}
-                <small>{bySlot[i].team}</small>
-              </>
-            ) : (
-              <span className="empty">open</span>
-            )}
-          </div>
+      {onTap && (
+        <div className="movehint">
+          {moveFrom === null
+            ? "Tap a player to move him to/from the bench"
+            : "Tap a highlighted slot to move (tap him again to cancel)"}
         </div>
-      ))}
+      )}
+      {slots.map((s, i) => {
+        const r = bySlot[i];
+        const cls = [
+          "rosterline",
+          moveFrom === i ? "movesel" : "",
+          eligibleTarget(i) ? "target" : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        const content = (
+          <>
+            <div className="slot">{i < 5 ? s : `BN${i - 4}`}</div>
+            <div className="who">
+              {r ? (
+                <>
+                  {r.n}
+                  <small>{r.team}</small>
+                </>
+              ) : (
+                <span className="empty">open</span>
+              )}
+            </div>
+          </>
+        );
+        return onTap ? (
+          <button className={cls} key={i} onClick={() => onTap(i)}>
+            {content}
+          </button>
+        ) : (
+          <div className={cls} key={i}>
+            {content}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -53,6 +92,7 @@ export default function Room() {
   const [error, setError] = useState("");
   const [joinName, setJoinName] = useState("");
   const [selected, setSelected] = useState(null); // player index in draw
+  const [moveFrom, setMoveFrom] = useState(null); // roster slot being moved
   const [showStats, setShowStats] = useState(false); // hidden by default
   const [busy, setBusy] = useState(false);
   const pidRef = useRef(null);
@@ -89,6 +129,7 @@ export default function Room() {
   const drawKey = `${state?.round}|${state?.draw?.label}`;
   useEffect(() => {
     setSelected(null);
+    setMoveFrom(null);
   }, [drawKey]);
 
   async function post(payload) {
@@ -109,6 +150,33 @@ export default function Room() {
     } finally {
       setBusy(false);
     }
+  }
+
+  // Tap-to-move on your own roster during the draft.
+  function rosterTap(i) {
+    const bySlot = {};
+    for (const r of state.you.roster) bySlot[r.slot] = r;
+    if (moveFrom === null) {
+      if (bySlot[i]) setMoveFrom(i); // select a player to move
+      return;
+    }
+    if (moveFrom === i) {
+      setMoveFrom(null); // tap again to cancel
+      return;
+    }
+    const fits = (pl, s) => s >= 5 || canPlay(pl.pos, state.slots[s]);
+    const mover = bySlot[moveFrom];
+    const occ = bySlot[i];
+    if (!mover) {
+      setMoveFrom(null);
+      return;
+    }
+    if (!fits(mover, i) || (occ && !fits(occ, moveFrom))) {
+      if (occ) setMoveFrom(i); // illegal target with a player → re-select him
+      return;
+    }
+    post({ action: "move", from: moveFrom, to: i });
+    setMoveFrom(null);
   }
 
   if (error && !state) {
@@ -203,7 +271,17 @@ export default function Room() {
     const youPicked = state.you.pickedThisRound;
     const usedSlots = new Set(state.you.roster.map((r) => r.slot));
     const myNames = new Set(state.you.roster.map((r) => r.n));
-    const sel = selected !== null ? state.draw.players[selected] : null;
+    // List the draw by position (PG → C), not dataset/stats order. Each
+    // player keeps his original index `i` for the pick payload.
+    const POS_ORDER = { PG: 0, SG: 1, SF: 2, PF: 3, C: 4 };
+    const primary = (p) => POS_ORDER[p.pos.split("/")[0]];
+    const drawSorted = [...state.draw.players].sort(
+      (a, b) => primary(a) - primary(b)
+    );
+    const sel =
+      selected !== null
+        ? state.draw.players.find((p) => p.i === selected)
+        : null;
 
     return (
       <div className="wrap">
@@ -228,7 +306,7 @@ export default function Room() {
                 (benchOpen ||
                   state.slots
                     .slice(0, 5)
-                    .some((s, i) => !usedSlots.has(i) && p.pos === s));
+                    .some((s, i) => !usedSlots.has(i) && canPlay(p.pos, s)));
               const noLegalPick = !state.draw.players.some(canPlace);
               return (
                 <>
@@ -262,14 +340,14 @@ export default function Room() {
               );
             })()}
 
-            {state.draw.players.map((p, i) => {
+            {drawSorted.map((p) => {
               const drafted = myNames.has(p.n);
               return (
                 <button
-                  key={i}
-                  className={`player ${selected === i ? "sel" : ""}`}
+                  key={p.i}
+                  className={`player ${selected === p.i ? "sel" : ""}`}
                   disabled={drafted}
-                  onClick={() => setSelected(selected === i ? null : i)}
+                  onClick={() => setSelected(selected === p.i ? null : p.i)}
                 >
                   <span className="pos">{p.pos}</span>
                   <span className="nm">{p.n}</span>
@@ -291,7 +369,7 @@ export default function Room() {
                   {state.slots.map((s, i) => {
                     const isBench = i >= 5;
                     const eligible =
-                      !usedSlots.has(i) && (isBench || sel.pos === s);
+                      !usedSlots.has(i) && (isBench || canPlay(sel.pos, s));
                     return (
                       <button
                         key={i}
@@ -320,7 +398,13 @@ export default function Room() {
           </div>
         )}
 
-        <Roster roster={state.you.roster} slots={state.slots} title="Your rotation" />
+        <Roster
+          roster={state.you.roster}
+          slots={state.slots}
+          title="Your rotation"
+          onTap={rosterTap}
+          moveFrom={moveFrom}
+        />
         <div className="card" style={{ fontSize: 13, color: "var(--muted)" }}>
           {state.opp?.name} has drafted {state.opp?.picksCount}/8 — picks stay
           hidden until tip-off.

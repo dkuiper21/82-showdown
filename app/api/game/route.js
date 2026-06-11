@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getRoom, setRoom, storeMode } from "../../../lib/store";
-import { TEAMS, SLOTS, ROUNDS } from "../../../lib/data";
+import { TEAMS, SLOTS, ROUNDS, canPlay } from "../../../lib/data";
 import { simSeries, expandPicks } from "../../../lib/sim";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +41,7 @@ function hasLegalPick(room, idx) {
   return teamData.players.some((p) => {
     if (names.has(p.n)) return false;
     if (benchOpen) return true;
-    return SLOTS.slice(0, 5).some((s, i) => !used.has(i) && p.pos === s);
+    return SLOTS.slice(0, 5).some((s, i) => !used.has(i) && canPlay(p.pos, s));
   });
 }
 
@@ -195,7 +195,7 @@ export async function POST(req) {
       return NextResponse.json({ error: "Invalid slot" }, { status: 400 });
     if (room.picks[idx].some((pk) => pk.slot === slot))
       return NextResponse.json({ error: "Slot already filled" }, { status: 400 });
-    if (slot < 5 && teamData.players[p].pos !== SLOTS[slot])
+    if (slot < 5 && !canPlay(teamData.players[p].pos, SLOTS[slot]))
       return NextResponse.json(
         { error: `${teamData.players[p].n} can't start at ${SLOTS[slot]}` },
         { status: 400 }
@@ -222,6 +222,41 @@ export async function POST(req) {
         room.override = [null, null];
       }
     }
+    await setRoom(code, room);
+    return NextResponse.json(stateFor(room, playerId));
+  }
+
+  // Rearrange your own roster during the draft: move a player to an open
+  // slot, or swap two players (bench <-> starter), respecting positions.
+  if (action === "move") {
+    if (room.phase !== "draft")
+      return NextResponse.json({ error: "Not drafting" }, { status: 400 });
+    const from = Number(body.from);
+    const to = Number(body.to);
+    if (
+      !(from >= 0 && from < SLOTS.length) ||
+      !(to >= 0 && to < SLOTS.length) ||
+      from === to
+    )
+      return NextResponse.json({ error: "Invalid move" }, { status: 400 });
+    const mover = room.picks[idx].find((pk) => pk.slot === from);
+    if (!mover)
+      return NextResponse.json({ error: "No player in that slot" }, { status: 400 });
+    const occupant = room.picks[idx].find((pk) => pk.slot === to) || null;
+    const fits = (pk, slot) =>
+      slot >= 5 || canPlay(TEAMS[pk.t].players[pk.p].pos, SLOTS[slot]);
+    if (!fits(mover, to))
+      return NextResponse.json(
+        { error: `${TEAMS[mover.t].players[mover.p].n} can't start at ${SLOTS[to]}` },
+        { status: 400 }
+      );
+    if (occupant && !fits(occupant, from))
+      return NextResponse.json(
+        { error: "Swap not allowed — positions don't match" },
+        { status: 400 }
+      );
+    mover.slot = to;
+    if (occupant) occupant.slot = from;
     await setRoom(code, room);
     return NextResponse.json(stateFor(room, playerId));
   }
