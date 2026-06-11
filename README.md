@@ -17,7 +17,8 @@ drawn team, you get a free re-roll automatically.
 1. Player 1 creates a game and gets a 4-letter code (or shares the invite link).
 2. Player 2 enters the code (or opens the link) on their phone.
 3. Both draft simultaneously each round; picks stay hidden until tip-off.
-4. Tap **Play Game N** to reveal the series one game at a time.
+4. The best-of-7 then auto-plays — a new game result appears every ~3 seconds
+   on both phones, no taps needed.
 
 ## Run locally
 

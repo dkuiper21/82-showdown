@@ -99,20 +99,29 @@ function stateFor(room, playerId) {
   }
   if (room.series) {
     const s = room.series;
+    // Games auto-reveal on a server clock: first game ~2.5s after the draft
+    // ends, then one every 3s. Both clients see the same count via polling.
+    const FIRST_MS = 2500;
+    const STEP_MS = 3000;
+    const elapsed = Date.now() - (room.seriesStart || 0);
+    const revealed = Math.max(
+      0,
+      Math.min(s.games.length, Math.floor((elapsed - FIRST_MS) / STEP_MS) + 1)
+    );
     base.series = {
-      wins: countRevealedWins(s),
-      games: s.games.slice(0, s.revealed),
-      revealed: s.revealed,
+      wins: countRevealedWins(s, revealed),
+      games: s.games.slice(0, revealed),
+      revealed,
       total: s.games.length,
-      over: s.revealed >= s.games.length,
+      over: revealed >= s.games.length,
     };
   }
   return base;
 }
 
-function countRevealedWins(s) {
+function countRevealedWins(s, revealed) {
   const wins = [0, 0];
-  for (let i = 0; i < s.revealed; i++) wins[s.games[i].winner]++;
+  for (let i = 0; i < revealed; i++) wins[s.games[i].winner]++;
   return wins;
 }
 
@@ -217,6 +226,7 @@ export async function POST(req) {
       if (room.round >= ROUNDS - 1) {
         room.phase = "series";
         room.series = simSeries(room.picks[0], room.picks[1]);
+        room.seriesStart = Date.now();
       } else {
         room.round++;
         room.override = [null, null];
@@ -275,22 +285,6 @@ export async function POST(req) {
     room.override[idx] = randomTeams(1, exclude)[0];
     if (!stuck) room.rerollUsed[idx] = true; // free re-roll when no legal pick
     await setRoom(code, room);
-    return NextResponse.json(stateFor(room, playerId));
-  }
-
-  if (action === "reveal") {
-    if (room.phase !== "series" || !room.series)
-      return NextResponse.json({ error: "No series yet" }, { status: 400 });
-    if (idx !== 0)
-      return NextResponse.json(
-        { error: "Only the host can play the next game" },
-        { status: 403 }
-      );
-    if (room.series.revealed < room.series.games.length) {
-      room.series.revealed++;
-      if (room.series.revealed >= room.series.games.length) room.phase = "done";
-      await setRoom(code, room);
-    }
     return NextResponse.json(stateFor(room, playerId));
   }
 

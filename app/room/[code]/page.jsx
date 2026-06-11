@@ -469,21 +469,11 @@ export default function Room() {
         </div>
       )}
 
-      {!over &&
-        (youIdx === 0 ? (
-          <button
-            className="btn"
-            disabled={busy}
-            style={{ marginBottom: 14 }}
-            onClick={() => post({ action: "reveal" })}
-          >
-            🏀 Play Game {s.revealed + 1}
-          </button>
-        ) : (
-          <div className="waiting">
-            Waiting for {state.opp?.name} to play Game {s.revealed + 1}…
-          </div>
-        ))}
+      {!over && (
+        <div className="waiting" style={{ marginBottom: 14 }}>
+          🏀 {s.revealed === 0 ? "Tip-off coming up" : `Simulating Game ${s.revealed + 1}`}…
+        </div>
+      )}
 
       {[...s.games].reverse().map((g) => {
         const youWon = g.winner === youIdx;
