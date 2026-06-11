@@ -36,10 +36,15 @@ tabs can play each other without any setup.
 3. Add Redis (required in production — serverless instances don't share memory):
    - Project → **Storage** → **Create Database** → choose **Upstash for Redis**
      (free tier) → connect it to the project.
-   - This auto-sets `KV_REST_API_URL` / `KV_REST_API_TOKEN` (or
-     `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`) — the app reads
-     either pair.
-4. Redeploy. Done — share your-app.vercel.app with friends.
+   - The app accepts whichever variables the integration sets: `REDIS_URL` /
+     `KV_URL` (TCP), or `KV_REST_API_URL` + `KV_REST_API_TOKEN` /
+     `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` (REST).
+4. Redeploy (env vars only apply to builds made after they were added).
+   Done — share your-app.vercel.app with friends.
+
+**Debugging storage:** open `your-app.vercel.app/api/game?code=TEST` — the
+JSON includes `"store": "redis-tcp" | "redis-rest" | "memory"`. If it says
+`memory`, Redis isn't connected and rooms won't be joinable across devices.
 
 ## Notes & known limitations
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getRoom, setRoom } from "../../../lib/store";
+import { getRoom, setRoom, storeMode } from "../../../lib/store";
 import { TEAMS, SLOTS, ROUNDS } from "../../../lib/data";
 import { simSeries, expandPicks } from "../../../lib/sim";
 
@@ -121,7 +121,11 @@ export async function GET(req) {
   const code = (searchParams.get("code") || "").toUpperCase();
   const playerId = searchParams.get("playerId") || "";
   const room = await getRoom(code);
-  if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
+  if (!room)
+    return NextResponse.json(
+      { error: "Room not found", store: storeMode() },
+      { status: 404 }
+    );
   return NextResponse.json(stateFor(room, playerId));
 }
 
