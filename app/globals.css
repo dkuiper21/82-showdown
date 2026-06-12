@@ -104,6 +104,31 @@ input.code { text-transform: uppercase; letter-spacing: 6px; font-weight: 700; t
   text-align: center;
 }
 
+/* Game mode picker */
+.modegrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.modebtn {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.modebtn b { display: block; font-size: 14px; margin-bottom: 3px; }
+.modebtn span { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+.modebtn.on {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+  background: var(--card2);
+}
+
 .divider {
   display: flex;
   align-items: center;
@@ -280,6 +305,13 @@ button.rosterline:last-child { border-bottom: none; }
 .seriesteam { text-align: center; flex: 1; }
 .seriesteam .nm { font-weight: 800; font-size: 15px; }
 .serieswins { font-size: 40px; font-weight: 900; color: var(--accent2); }
+.ratingline {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
 .vs { color: var(--muted); font-size: 13px; padding: 0 10px; }
 
 .game {

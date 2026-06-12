@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 function getPlayerId() {
   let id = localStorage.getItem("s82_pid");
@@ -88,6 +88,7 @@ function Roster({ roster, slots, title, onTap, moveFrom = null }) {
 
 export default function Room() {
   const { code } = useParams();
+  const router = useRouter();
   const [state, setState] = useState(null);
   const [error, setError] = useState("");
   const [joinName, setJoinName] = useState("");
@@ -244,6 +245,11 @@ export default function Room() {
         <div className="card">
           <div className="label" style={{ textAlign: "center" }}>Game code</div>
           <div className="bigcode">{state.code}</div>
+          <div className="teamsub" style={{ textAlign: "center" }}>
+            {state.mode === "random"
+              ? "Random teams · 2 re-rolls each"
+              : "Same teams · no re-rolls"}
+          </div>
           <div className="pulse">Waiting for your opponent to join…</div>
           <div style={{ marginTop: 16 }}>
             <button
@@ -322,7 +328,7 @@ export default function Room() {
                     >
                       {showStats ? "Hide stats" : "Show stats"}
                     </button>
-                    {(!state.you.rerollUsed || noLegalPick) && (
+                    {(state.you.rerollsLeft > 0 || noLegalPick) && (
                       <button
                         className="toggle"
                         disabled={busy}
@@ -332,7 +338,9 @@ export default function Room() {
                         }}
                       >
                         🎲 Re-roll team{" "}
-                        {noLegalPick && state.you.rerollUsed ? "(free)" : "(1 left)"}
+                        {noLegalPick && state.you.rerollsLeft <= 0
+                          ? "(free)"
+                          : `(${state.you.rerollsLeft} left)`}
                       </button>
                     )}
                   </div>
@@ -431,11 +439,21 @@ export default function Room() {
         <div className="seriesteam">
           <div className="nm">{state.you.name}</div>
           <div className="serieswins">{myWins}</div>
+          {s.ratings && (
+            <div className="ratingline">
+              OFF {s.ratings[youIdx].off} · DEF {s.ratings[youIdx].def}
+            </div>
+          )}
         </div>
         <div className="vs">best of 7</div>
         <div className="seriesteam">
           <div className="nm">{state.opp?.name}</div>
           <div className="serieswins">{oppWins}</div>
+          {s.ratings && (
+            <div className="ratingline">
+              OFF {s.ratings[1 - youIdx].off} · DEF {s.ratings[1 - youIdx].def}
+            </div>
+          )}
         </div>
       </div>
 
@@ -462,10 +480,26 @@ export default function Room() {
             >
               Share result
             </button>{" "}
-            <a className="btn small" style={{ textDecoration: "none" }} href="/">
-              Rematch →
-            </a>
+            <button
+              className="btn small"
+              disabled={busy}
+              onClick={async () => {
+                const d = await post({ action: "rematch" });
+                if (d && d.code) router.push(`/room/${d.code}`);
+              }}
+            >
+              {state.rematch
+                ? state.rematch.byIdx === youIdx
+                  ? "Back to rematch lobby →"
+                  : "Accept rematch ✓"
+                : "Rematch →"}
+            </button>
           </div>
+          {state.rematch && state.rematch.byIdx !== youIdx && (
+            <div className="pulse" style={{ marginTop: 12 }}>
+              🔔 {state.rematch.by} wants a rematch!
+            </div>
+          )}
         </div>
       )}
 

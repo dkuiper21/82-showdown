@@ -1,12 +1,16 @@
 # 82 Showdown
 
-Head-to-head NBA draft game. Each round, both players see the same random
-single-season roster (e.g. the '96 Bulls) drawn from a pool of **108
-team-seasons** (1957–2025), pick one player, and slot him into an 8-man
-rotation — five starters by position plus three bench spots. Stats are hidden
-by default (tap **Show stats** to peek). One re-roll each. After 8 rounds the
-squads battle in a simulated best-of-7 series with era-adjusted ratings, so
-1962 Wilt doesn't auto-win.
+Head-to-head NBA draft game. Each round, players get a random single-season
+roster (e.g. the '96 Bulls) drawn from a pool of **108 team-seasons**
+(1957–2025), pick one player, and slot him into an 8-man rotation — five
+starters by position plus three bench spots. Stats are hidden by default (tap
+**Show stats** to peek). After 8 rounds the squads battle in a simulated
+best-of-7 series with era-adjusted offense/defense ratings (shown on the
+result screen), so 1962 Wilt doesn't auto-win.
+
+Two modes, chosen when creating a game: **Same teams** (both players draft
+from identical draws, no re-rolls) or **Random teams** (independent draws,
+2 re-rolls each).
 
 A player who appears on multiple team-seasons (Wilt, Shaq, LeBron…) can only
 be on your roster once. If that rule ever leaves you with no legal pick on a
@@ -19,6 +23,8 @@ drawn team, you get a free re-roll automatically.
 3. Both draft simultaneously each round; picks stay hidden until tip-off.
 4. The best-of-7 then auto-plays — a new game result appears every ~3 seconds
    on both phones, no taps needed.
+5. After the series, either player can tap **Rematch** — the other player gets
+   alerted on their result screen and joins with one tap, no new code needed.
 
 ## Run locally
 

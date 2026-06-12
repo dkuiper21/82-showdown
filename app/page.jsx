@@ -16,6 +16,7 @@ export default function Home() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
+  const [mode, setMode] = useState("same");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -40,6 +41,7 @@ export default function Home() {
           action: "create",
           playerId: getPlayerId(),
           name: name.trim(),
+          mode,
         }),
       });
       const data = await res.json();
@@ -97,6 +99,24 @@ export default function Home() {
           onChange={(e) => setName(e.target.value)}
         />
 
+        <label className="label">Game mode</label>
+        <div className="modegrid">
+          <button
+            className={`modebtn ${mode === "same" ? "on" : ""}`}
+            onClick={() => setMode("same")}
+          >
+            <b>Same teams</b>
+            <span>You both draft from identical draws. No re-rolls.</span>
+          </button>
+          <button
+            className={`modebtn ${mode === "random" ? "on" : ""}`}
+            onClick={() => setMode("random")}
+          >
+            <b>Random teams</b>
+            <span>Different draws for each of you. 2 re-rolls each.</span>
+          </button>
+        </div>
+
         <button className="btn" onClick={createGame} disabled={busy}>
           Create Game
         </button>
@@ -120,11 +140,12 @@ export default function Home() {
       </div>
 
       <div className="card" style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6 }}>
-        <b style={{ color: "var(--text)" }}>How it works:</b> each round, both of
-        you see the same random team-season (like the &rsquo;96 Bulls or &rsquo;87
-        Lakers). Pick one player and slot him into your 8-man rotation — five
-        starters by position plus three bench spots. After 8 rounds, your squads
-        face off in a simulated best-of-7 series. One re-roll each. Choose wisely.
+        <b style={{ color: "var(--text)" }}>How it works:</b> each round you get
+        a random team-season (like the &rsquo;96 Bulls or &rsquo;87 Lakers) —
+        identical draws for both of you in Same-teams mode, independent draws in
+        Random mode. Pick one player and slot him into your 8-man rotation —
+        five starters by position plus three bench spots. After 8 rounds, your
+        squads face off in a simulated best-of-7 series. Choose wisely.
       </div>
     </div>
   );

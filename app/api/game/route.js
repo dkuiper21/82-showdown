@@ -23,9 +23,11 @@ function randomTeams(n, exclude = []) {
   return pool.slice(0, n);
 }
 
+// draws is per-player: draws[idx][round]. In "same" mode both arrays are
+// identical; in "random" mode each player gets independent draws.
 function currentDraw(room, idx) {
   const o = room.override[idx];
-  return o !== null && o !== undefined ? o : room.draws[room.round];
+  return o !== null && o !== undefined ? o : room.draws[idx][room.round];
 }
 
 // True if the player has at least one legal (player, slot) combo on the
@@ -53,6 +55,47 @@ function publicTeam(ti) {
   };
 }
 
+// Fresh room shell — used by both create and rematch.
+function freshRoom(code, mode, firstPlayer) {
+  let draws;
+  if (mode === "random") {
+    draws = [randomTeams(ROUNDS), randomTeams(ROUNDS)];
+  } else {
+    const shared = randomTeams(ROUNDS);
+    draws = [shared, [...shared]];
+  }
+  return {
+    code,
+    created: Date.now(),
+    players: [firstPlayer],
+    phase: "lobby",
+    round: 0,
+    mode,
+    draws,
+    override: [null, null],
+    rerollsLeft: mode === "random" ? [2, 2] : [0, 0],
+    picks: [[], []],
+    series: null,
+  };
+}
+
+async function freeCode() {
+  let code = makeCode();
+  for (let i = 0; i < 5 && (await getRoom(code)); i++) code = makeCode();
+  return code;
+}
+
+// Games auto-reveal on a server clock: first game ~2.5s after the draft
+// ends, then one every 3s. Both clients see the same count via polling.
+function revealedCount(room) {
+  if (!room.series) return 0;
+  const elapsed = Date.now() - (room.seriesStart || 0);
+  return Math.max(
+    0,
+    Math.min(room.series.games.length, Math.floor((elapsed - 2500) / 3000) + 1)
+  );
+}
+
 function expandedRoster(picks) {
   return expandPicks(picks).map((pk) => ({
     slot: pk.slot,
@@ -78,9 +121,10 @@ function stateFor(room, playerId) {
 
   const myPicks = room.picks[idx];
   const oppPicks = room.picks[1 - idx];
+  base.mode = room.mode || "same";
   base.you = {
     name: room.players[idx].name,
-    rerollUsed: room.rerollUsed[idx],
+    rerollsLeft: room.rerollsLeft ? room.rerollsLeft[idx] : 0,
     roster: expandedRoster(myPicks),
     pickedThisRound: myPicks.length > room.round,
   };
@@ -97,23 +141,23 @@ function stateFor(room, playerId) {
   if (room.phase === "draft") {
     base.draw = publicTeam(currentDraw(room, idx));
   }
+  base.rematch = room.next
+    ? {
+        code: room.next.code,
+        by: room.players[room.next.by]?.name,
+        byIdx: room.next.by,
+      }
+    : null;
   if (room.series) {
     const s = room.series;
-    // Games auto-reveal on a server clock: first game ~2.5s after the draft
-    // ends, then one every 3s. Both clients see the same count via polling.
-    const FIRST_MS = 2500;
-    const STEP_MS = 3000;
-    const elapsed = Date.now() - (room.seriesStart || 0);
-    const revealed = Math.max(
-      0,
-      Math.min(s.games.length, Math.floor((elapsed - FIRST_MS) / STEP_MS) + 1)
-    );
+    const revealed = revealedCount(room);
     base.series = {
       wins: countRevealedWins(s, revealed),
       games: s.games.slice(0, revealed),
       revealed,
       total: s.games.length,
       over: revealed >= s.games.length,
+      ratings: s.ratings || null, // [player0, player1] off/def ratings
     };
   }
   return base;
@@ -152,21 +196,11 @@ export async function POST(req) {
   if (action === "create") {
     if (!playerId || !name)
       return NextResponse.json({ error: "Name required" }, { status: 400 });
-    let code = makeCode();
-    // avoid collisions
-    for (let i = 0; i < 5 && (await getRoom(code)); i++) code = makeCode();
-    const room = {
-      code,
-      created: Date.now(),
-      players: [{ id: playerId, name }],
-      phase: "lobby",
-      round: 0,
-      draws: randomTeams(ROUNDS),
-      override: [null, null],
-      rerollUsed: [false, false],
-      picks: [[], []],
-      series: null,
-    };
+    // "same": both players draft from identical draws, no re-rolls.
+    // "random": independent draws for each player, 2 re-rolls each.
+    const mode = body.mode === "random" ? "random" : "same";
+    const code = await freeCode();
+    const room = freshRoom(code, mode, { id: playerId, name });
     await setRoom(code, room);
     return NextResponse.json({ code });
   }
@@ -277,15 +311,50 @@ export async function POST(req) {
     if (room.picks[idx].length > room.round)
       return NextResponse.json({ error: "Already picked this round" }, { status: 400 });
     const stuck = !hasLegalPick(room, idx);
-    if (room.rerollUsed[idx] && !stuck)
-      return NextResponse.json({ error: "Re-roll already used" }, { status: 400 });
-    const exclude = [...room.draws, room.override[idx]].filter(
+    if (room.rerollsLeft[idx] <= 0 && !stuck)
+      return NextResponse.json({ error: "No re-rolls left" }, { status: 400 });
+    const exclude = [...room.draws[0], ...room.draws[1], room.override[idx]].filter(
       (x) => x !== null && x !== undefined
     );
     room.override[idx] = randomTeams(1, exclude)[0];
-    if (!stuck) room.rerollUsed[idx] = true; // free re-roll when no legal pick
+    if (!stuck) room.rerollsLeft[idx]--; // stuck = free re-roll, costs nothing
     await setRoom(code, room);
     return NextResponse.json(stateFor(room, playerId));
+  }
+
+  // Rematch: first player to tap creates the next room (same mode) and a
+  // pointer is stored on the finished room so the opponent gets alerted via
+  // polling and can hop over without entering a code.
+  if (action === "rematch") {
+    const over =
+      room.series && revealedCount(room) >= room.series.games.length;
+    if (!over)
+      return NextResponse.json({ error: "Series isn't finished" }, { status: 400 });
+
+    if (room.next) {
+      // Rematch room already exists — join it if we're not in it yet.
+      const nroom = await getRoom(room.next.code);
+      if (nroom) {
+        const inRoom = nroom.players.some((p) => p.id === playerId);
+        if (!inRoom && nroom.players.length < 2) {
+          nroom.players.push({ id: playerId, name: room.players[idx].name });
+          nroom.phase = "draft";
+          await setRoom(nroom.code, nroom);
+        }
+        return NextResponse.json({ code: room.next.code });
+      }
+      // next room expired — fall through and create a fresh one
+    }
+
+    const ncode = await freeCode();
+    const nroom = freshRoom(ncode, room.mode || "same", {
+      id: playerId,
+      name: room.players[idx].name,
+    });
+    await setRoom(ncode, nroom);
+    room.next = { code: ncode, by: idx };
+    await setRoom(code, room);
+    return NextResponse.json({ code: ncode });
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
