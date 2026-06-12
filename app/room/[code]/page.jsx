@@ -504,6 +504,15 @@ export default function Room() {
               🔔 {state.rematch.by} wants a rematch!
             </div>
           )}
+          <div style={{ marginTop: 10 }}>
+            <a
+              className="btn small ghost"
+              style={{ textDecoration: "none" }}
+              href="/"
+            >
+              New Game
+            </a>
+          </div>
         </div>
       )}
 
