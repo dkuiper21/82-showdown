@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getRoom, setRoom, storeMode } from "../../../lib/store";
+import { getRoom, setRoom, getKV, setKV, storeMode } from "../../../lib/store";
 import { TEAMS, SLOTS, ROUNDS, canPlay } from "../../../lib/data";
 import { simSeries, expandPicks } from "../../../lib/sim";
 
@@ -122,6 +122,7 @@ function stateFor(room, playerId) {
   const myPicks = room.picks[idx];
   const oppPicks = room.picks[1 - idx];
   base.mode = room.mode || "same";
+  base.matchmaking = !!room.matchmaking;
   base.you = {
     name: room.players[idx].name,
     rerollsLeft: room.rerollsLeft ? room.rerollsLeft[idx] : 0,
@@ -203,6 +204,32 @@ export async function POST(req) {
     const room = freshRoom(code, mode, { id: playerId, name });
     await setRoom(code, room);
     return NextResponse.json({ code });
+  }
+
+  // Matchmaking: if someone is already waiting, join their room; otherwise
+  // create an open room and sit in the queue (entry stays fresh for 2 min).
+  if (action === "queue") {
+    if (!playerId || !name)
+      return NextResponse.json({ error: "Name required" }, { status: 400 });
+    const mode = body.mode === "random" ? "random" : "same";
+    const q = await getKV("queue");
+    if (q && Date.now() - q.ts < 120000 && q.playerId !== playerId) {
+      const qroom = await getRoom(q.code);
+      if (qroom && qroom.phase === "lobby" && qroom.players.length === 1) {
+        qroom.players.push({ id: playerId, name });
+        qroom.phase = "draft";
+        await setRoom(q.code, qroom);
+        await setKV("queue", null);
+        return NextResponse.json({ code: q.code, matched: true });
+      }
+      // Queued room is gone or already full — fall through and take its place.
+    }
+    const ncode = await freeCode();
+    const nroom = freshRoom(ncode, mode, { id: playerId, name });
+    nroom.matchmaking = true;
+    await setRoom(ncode, nroom);
+    await setKV("queue", { code: ncode, playerId, ts: Date.now() }, 150);
+    return NextResponse.json({ code: ncode, matched: false });
   }
 
   const code = (body.code || "").toUpperCase();

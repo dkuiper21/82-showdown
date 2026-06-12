@@ -18,7 +18,9 @@ drawn team, you get a free re-roll automatically.
 
 ## Play flow
 
-1. Player 1 creates a game and gets a 4-letter code (or shares the invite link).
+1. Player 1 creates a game and gets a 4-letter code (or shares the invite
+   link) — or taps **Find Random Opponent** to enter the matchmaking queue,
+   which pairs the next two people who hit it.
 2. Player 2 enters the code (or opens the link) on their phone.
 3. Both draft simultaneously each round; picks stay hidden until tip-off.
 4. The best-of-7 then auto-plays — a new game result appears every ~3 seconds

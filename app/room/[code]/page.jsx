@@ -250,7 +250,11 @@ export default function Room() {
               ? "Random teams · 2 re-rolls each"
               : "Same teams · no re-rolls"}
           </div>
-          <div className="pulse">Waiting for your opponent to join…</div>
+          <div className="pulse">
+            {state.matchmaking
+              ? "Looking for a random opponent…"
+              : "Waiting for your opponent to join…"}
+          </div>
           <div style={{ marginTop: 16 }}>
             <button
               className="btn ghost"

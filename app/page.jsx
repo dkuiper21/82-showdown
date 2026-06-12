@@ -53,6 +53,31 @@ export default function Home() {
     }
   }
 
+  async function findOpponent() {
+    if (!name.trim()) return setError("Enter your name first");
+    setBusy(true);
+    setError("");
+    saveName();
+    try {
+      const res = await fetch("/api/game", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "queue",
+          playerId: getPlayerId(),
+          name: name.trim(),
+          mode,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
+      router.push(`/room/${data.code}`);
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  }
+
   async function joinGame() {
     if (!name.trim()) return setError("Enter your name first");
     if (code.trim().length !== 4) return setError("Code is 4 characters");
@@ -119,6 +144,14 @@ export default function Home() {
 
         <button className="btn" onClick={createGame} disabled={busy}>
           Create Game
+        </button>
+        <button
+          className="btn ghost"
+          style={{ marginTop: 8 }}
+          onClick={findOpponent}
+          disabled={busy}
+        >
+          🎲 Find Random Opponent
         </button>
 
         <div className="divider">or join a friend</div>
