@@ -16,7 +16,7 @@ export default function Home() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
-  const [mode, setMode] = useState("same");
+  const [mode, setMode] = useState("random");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -127,18 +127,18 @@ export default function Home() {
         <label className="label">Game mode</label>
         <div className="modegrid">
           <button
-            className={`modebtn ${mode === "same" ? "on" : ""}`}
-            onClick={() => setMode("same")}
-          >
-            <b>Same teams</b>
-            <span>You both draft from identical draws. No re-rolls.</span>
-          </button>
-          <button
             className={`modebtn ${mode === "random" ? "on" : ""}`}
             onClick={() => setMode("random")}
           >
             <b>Random teams</b>
             <span>Different draws for each of you. 2 re-rolls each.</span>
+          </button>
+          <button
+            className={`modebtn ${mode === "same" ? "on" : ""}`}
+            onClick={() => setMode("same")}
+          >
+            <b>Same teams</b>
+            <span>You both draft from identical draws. No re-rolls.</span>
           </button>
         </div>
 
