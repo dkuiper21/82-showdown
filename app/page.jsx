@@ -78,6 +78,31 @@ export default function Home() {
     }
   }
 
+  async function playComputer() {
+    if (!name.trim()) return setError("Enter your name first");
+    setBusy(true);
+    setError("");
+    saveName();
+    try {
+      const res = await fetch("/api/game", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "cpu",
+          playerId: getPlayerId(),
+          name: name.trim(),
+          mode,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
+      router.push(`/room/${data.code}`);
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  }
+
   async function joinGame() {
     if (!name.trim()) return setError("Enter your name first");
     if (code.trim().length !== 4) return setError("Code is 4 characters");
@@ -152,6 +177,14 @@ export default function Home() {
           disabled={busy}
         >
           🎲 Find Random Opponent
+        </button>
+        <button
+          className="btn ghost"
+          style={{ marginTop: 8 }}
+          onClick={playComputer}
+          disabled={busy}
+        >
+          Play vs Computer
         </button>
 
         <div className="divider">or join a friend</div>

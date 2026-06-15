@@ -101,10 +101,10 @@ export default function Room() {
   const refresh = useCallback(async () => {
     if (!pidRef.current) return;
     try {
-      const res = await fetch(
-        `/api/game?code=${code}&playerId=${pidRef.current}`,
-        { cache: "no-store" }
-      );
+      const res = await fetch(`/api/game?code=${code}`, {
+        cache: "no-store",
+        headers: { "x-player-id": pidRef.current },
+      });
       const data = await res.json();
       if (res.ok) {
         setState(data);

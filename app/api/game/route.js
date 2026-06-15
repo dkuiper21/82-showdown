@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getRoom, setRoom, getKV, setKV, storeMode } from "../../../lib/store";
 import { TEAMS, SLOTS, ROUNDS, canPlay } from "../../../lib/data";
-import { simSeries, expandPicks } from "../../../lib/sim";
+import { simSeries, expandPicks, playerValue } from "../../../lib/sim";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +47,62 @@ function hasLegalPick(room, idx) {
   });
 }
 
+// Chance the CPU locks in the current best option at each step. On a miss it
+// drops that option and re-evaluates the next-best, so it stays strong but
+// beatable and never settles for a wildly random player.
+const CPU_BEST_PICK_RATE = 0.9;
+
+// Auto-draft for the computer opponent. Usually picks the highest-value legal
+// (player, slot) combo from its drawn team this round — see playerValue() and
+// CPU_BEST_PICK_RATE. The CPU never spends the optional strategic re-rolls;
+// the only re-roll it takes is the same free, forced one a human gets on a
+// hard-stuck draw (no legal pick at all), purely so the draft can't deadlock.
+function cpuMakePick(room) {
+  const idx = room.players.findIndex((p) => p.cpu);
+  if (idx < 0 || room.phase !== "draft") return;
+  if (room.picks[idx].length > room.round) return; // already picked this round
+
+  let guard = 0;
+  while (!hasLegalPick(room, idx) && guard++ < 50) {
+    const exclude = [...room.draws[0], ...room.draws[1], room.override[idx]].filter(
+      (x) => x !== null && x !== undefined
+    );
+    room.override[idx] = randomTeams(1, exclude)[0];
+  }
+
+  const ti = currentDraw(room, idx);
+  const team = TEAMS[ti];
+  const used = new Set(room.picks[idx].map((pk) => pk.slot));
+  const names = new Set(
+    room.picks[idx].map((pk) => TEAMS[pk.t].players[pk.p].n)
+  );
+
+  // Every legal (player, slot) combo this round, best value first.
+  const options = [];
+  team.players.forEach((pl, p) => {
+    if (names.has(pl.n)) return; // already on the CPU's roster
+    for (let slot = 0; slot < SLOTS.length; slot++) {
+      if (used.has(slot)) continue;
+      if (slot < 5 && !canPlay(pl.pos, SLOTS[slot])) continue;
+      options.push({ p, slot, v: playerValue(pl, team.year, slot) });
+    }
+  });
+  if (!options.length) return; // shouldn't happen after the stuck guard
+  options.sort((a, b) => b.v - a.v);
+
+  // Walk the ranked options best-first: 90% chance to lock in the current
+  // best, otherwise drop it and re-evaluate the next-best. The last remaining
+  // option is always taken, so a pick is guaranteed.
+  let choice = options[options.length - 1];
+  for (let i = 0; i < options.length - 1; i++) {
+    if (Math.random() < CPU_BEST_PICK_RATE) {
+      choice = options[i];
+      break;
+    }
+  }
+  room.picks[idx].push({ t: ti, p: choice.p, slot: choice.slot });
+}
+
 function publicTeam(ti) {
   const t = TEAMS[ti];
   return {
@@ -77,6 +133,15 @@ function freshRoom(code, mode, firstPlayer) {
     picks: [[], []],
     series: null,
   };
+}
+
+// Turn a fresh single-player room into a vs-computer game: drop in the CPU as
+// player 2 and jump straight to the draft (no lobby/opponent wait).
+function cpuify(room) {
+  room.players.push({ id: "__cpu__", name: "Computer", cpu: true });
+  room.vsCpu = true;
+  room.phase = "draft";
+  return room;
 }
 
 async function freeCode() {
@@ -173,7 +238,9 @@ function countRevealedWins(s, revealed) {
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const code = (searchParams.get("code") || "").toUpperCase();
-  const playerId = searchParams.get("playerId") || "";
+  // playerId is an auth token — read it from a header so it never lands in
+  // URLs (server access logs, proxy logs, browser history).
+  const playerId = req.headers.get("x-player-id") || "";
   const room = await getRoom(code);
   if (!room)
     return NextResponse.json(
@@ -202,6 +269,19 @@ export async function POST(req) {
     const mode = body.mode === "random" ? "random" : "same";
     const code = await freeCode();
     const room = freshRoom(code, mode, { id: playerId, name });
+    await setRoom(code, room);
+    return NextResponse.json({ code });
+  }
+
+  // Solo game vs the computer. Both seats are filled immediately and the
+  // draft starts right away. The CPU drafts in the same request as each of
+  // your picks (see cpuMakePick), so rounds advance as soon as you pick.
+  if (action === "cpu") {
+    if (!playerId || !name)
+      return NextResponse.json({ error: "Name required" }, { status: 400 });
+    const mode = body.mode === "random" ? "random" : "same";
+    const code = await freeCode();
+    const room = cpuify(freshRoom(code, mode, { id: playerId, name }));
     await setRoom(code, room);
     return NextResponse.json({ code });
   }
@@ -280,6 +360,9 @@ export async function POST(req) {
       );
     room.picks[idx].push({ t: ti, p, slot });
 
+    // Computer drafts immediately after you, so the round can advance.
+    if (room.vsCpu) cpuMakePick(room);
+
     // Advance the round when both players have picked.
     const a = room.picks[0].length;
     const b = room.picks[1].length;
@@ -357,6 +440,19 @@ export async function POST(req) {
       room.series && revealedCount(room) >= room.series.games.length;
     if (!over)
       return NextResponse.json({ error: "Series isn't finished" }, { status: 400 });
+
+    // Vs-computer: no opponent to coordinate with — just start a fresh game.
+    if (room.vsCpu) {
+      const ncode = await freeCode();
+      const nroom = cpuify(
+        freshRoom(ncode, room.mode || "same", {
+          id: playerId,
+          name: room.players[idx].name,
+        })
+      );
+      await setRoom(ncode, nroom);
+      return NextResponse.json({ code: ncode });
+    }
 
     if (room.next) {
       // Rematch room already exists — join it if we're not in it yet.
