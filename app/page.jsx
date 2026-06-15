@@ -167,7 +167,15 @@ export default function Home() {
           </button>
         </div>
 
-        <button className="btn" onClick={createGame} disabled={busy}>
+        <button className="btn" onClick={playComputer} disabled={busy}>
+          Play vs Computer
+        </button>
+        <button
+          className="btn ghost"
+          style={{ marginTop: 8 }}
+          onClick={createGame}
+          disabled={busy}
+        >
           Create Game
         </button>
         <button
@@ -177,14 +185,6 @@ export default function Home() {
           disabled={busy}
         >
           🎲 Find Random Opponent
-        </button>
-        <button
-          className="btn ghost"
-          style={{ marginTop: 8 }}
-          onClick={playComputer}
-          disabled={busy}
-        >
-          Play vs Computer
         </button>
 
         <div className="divider">or join a friend</div>
