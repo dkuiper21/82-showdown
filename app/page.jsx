@@ -145,7 +145,7 @@ export default function Home() {
         <input
           value={name}
           maxLength={20}
-          placeholder="e.g. Daniel"
+          placeholder="e.g. John"
           onChange={(e) => setName(e.target.value)}
         />
 

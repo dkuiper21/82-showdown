@@ -475,9 +475,10 @@ export default function Room() {
               className="btn small ghost"
               onClick={() => {
                 const txt = `82 Showdown: I ${champIsYou ? "beat" : "lost to"} ${state.opp?.name} ${myWins}-${oppWins} in a best-of-7. Draft your squad and challenge me!`;
-                if (navigator.share) navigator.share({ text: txt });
+                const url = window.location.href;
+                if (navigator.share) navigator.share({ text: txt, url });
                 else {
-                  navigator.clipboard.writeText(txt);
+                  navigator.clipboard.writeText(`${txt} ${url}`);
                   alert("Copied!");
                 }
               }}
